@@ -14,7 +14,7 @@ class MLogEntry
 
 	const TYPE_BEGIN = 1;
 	const TYPE_END = 2;
-	const TYPE_CURRENT_STAT = 3;
+	const TYPE_REPORT_STATUS = 3;
 
 	public $title;
 	public $message;
@@ -24,6 +24,7 @@ class MLogEntry
 	public $entry_time;
 	public $entry_memory;
 
+
 	/** @var  MLogEntry */
 	public $parent;
 
@@ -32,6 +33,8 @@ class MLogEntry
 
 	protected $count = 0;
 	protected $level = 0;
+	protected $logEntryOpen = false;
+	protected $freezedFlags = array();
 
 	function __construct($title, $message, $additional_params = null, $flags = null, $level = 0)
 	{
@@ -43,6 +46,11 @@ class MLogEntry
 		$this->entry_memory = memory_get_usage();
 		$this->level = $level;
 		$this->count = 1;
+	}
+
+	function isOpen()
+	{
+		return $this->logEntryOpen;
 	}
 
 	function next(MLogEntry $child)
@@ -59,13 +67,45 @@ class MLogEntry
 		return $this->parent;
 	}
 
+	function freezeFlags($removeFlags = null, $addFlags = null)
+	{
+		array_push($this->freezedFlags, $this->flags);
+		if ($removeFlags)
+		{
+			$this->flags &= $removeFlags;
+		}
+
+		if ($addFlags)
+		{
+			$this->flags |= $addFlags;
+		}
+	}
+
+	function unfreezeFlags(){
+		$this->flags = array_pop($this->freezedFlags);
+	}
+
 	function log($type, $additional_parameters = null)
 	{
 		$current_memory = memory_get_usage();
 
+		if ($type == self::TYPE_BEGIN)
+		{
+			$this->logEntryOpen = true;
+		}
+
+		if ($type == self::TYPE_END)
+		{
+			$this->logEntryOpen = false;
+		}
+
 		if(
-			($this->flags & self::SILENT_BEGIN && $type == self::TYPE_BEGIN) ||
-			($this->flags & self::SILENT_END && $type == self::TYPE_END)
+			$type != self::TYPE_REPORT_STATUS &&
+			(
+				($this->flags & self::SILENT_BEGIN && $type == self::TYPE_BEGIN) ||
+				($this->flags & self::SILENT_END && $type == self::TYPE_END)
+			)
+
 		)
 		{
 			$message = null;
@@ -102,9 +142,9 @@ class MLogEntry
 				$details["title"] .= ': ';
 			}
 
-			$details["type_text"] = ($type == MLogEntry::TYPE_BEGIN) ? "Beginning": ($type == MLogEntry::TYPE_END ? "Ending": "Status Report");
+			$details["type_text"] = ($type == MLogEntry::TYPE_BEGIN) ? "Beginning": ($type == MLogEntry::TYPE_END ? "Ending": "");
 
-			if($type == MLogEntry::TYPE_END)
+			if(!$this->logEntryOpen)
 			{
 				if($this->flags & self::SHOW_DURATION)
 				{
@@ -133,7 +173,7 @@ class MLogEntry
 					$details["begin_memory"] = $this->formatMemory($this->entry_memory);
 				}
 			}
-			elseif($type == MLogEntry::TYPE_BEGIN)
+			elseif($this->logEntryOpen)
 			{
 				if($this->flags & self::SHOW_PARAMS && !is_null($this->extra_details))
 				{
@@ -250,6 +290,22 @@ class MLogEntry
 
 		return eval(" return \"{$__format}\";");
 	}
+
+	public function getLastMessage()
+	{
+		if ($this->children)
+		{
+			$message = $this->children[count($this->children)-1]->getLastMessage();
+		}
+		else
+		{
+			$this->freezeFlags(MLogEntry::ECHO_SCREEN);
+			$message = $this->log(MLogEntry::TYPE_REPORT_STATUS);
+			$this->unfreezeFlags();
+		}
+
+		return $message;
+	}
 }
 
 class MLogger
@@ -312,14 +368,25 @@ class MLogger
 		return $this->log_dir.'/'.$this->log_file;
 	}
 
+	function getLastMessage()
+	{
+		$message = $this->last->getLastMessage();
+
+		return $message;
+	}
+
+	function setLogLevel($level){
+		$prev = $this->log_level;
+		$this->log_level = $level;
+		return $prev;
+	}
+
 	function begin($log_title, $log_message = '', $log_params = null, $flags = null)
 	{
 		if(is_null($flags))
 		{
 			$flags = MLogEntry::SHOW_NONE;
 		}
-
-		$flags |= MLogEntry::SHOW_TIME;
 
 		switch($this->log_level)
 		{
@@ -334,6 +401,8 @@ class MLogger
 			$flags |= MLogEntry::SHOW_DURATION;
 			break;
 		}
+
+		$flags |= MLogEntry::SHOW_TIME;
 
 		$new = new MLogEntry($log_title, $log_message, $log_params, $flags);
 		$new->parent = $this->last;
@@ -409,5 +478,10 @@ class MLogger
 		{
 			$this->finish("WARNING: FORCED DESTRUCTION!");
 		}
+	}
+
+	public function setFlag($removeFlags = null, $addFlags = null)
+	{
+		$this->last->freezeFlags($removeFlags, $addFlags);
 	}
 }
