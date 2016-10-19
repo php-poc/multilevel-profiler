@@ -70,15 +70,9 @@ class MLogEntry
 	function freezeFlags($removeFlags = null, $addFlags = null)
 	{
 		array_push($this->freezedFlags, $this->flags);
-		if ($removeFlags)
-		{
-			$this->flags &= $removeFlags;
-		}
+		$this->setFlags($removeFlags, $addFlags);
 
-		if ($addFlags)
-		{
-			$this->flags |= $addFlags;
-		}
+		return $this;
 	}
 
 	function unfreezeFlags(){
@@ -306,6 +300,19 @@ class MLogEntry
 
 		return $message;
 	}
+
+	function setFlags($removeFlags, $addFlags)
+	{
+		if ($removeFlags)
+		{
+			$this->flags &= $removeFlags;
+		}
+
+		if ($addFlags)
+		{
+			$this->flags |= $addFlags;
+		}
+	}
 }
 
 class MLogger
@@ -482,6 +489,6 @@ class MLogger
 
 	public function setFlag($removeFlags = null, $addFlags = null)
 	{
-		$this->last->freezeFlags($removeFlags, $addFlags);
+		$this->last->setFlags($removeFlags, $addFlags);
 	}
 }
